@@ -9,7 +9,7 @@
 
 #define nL 100
 #define nH 100
-#define nt 10000000
+#define nt 1000000
 #define D 2
 #define Q 9
 
