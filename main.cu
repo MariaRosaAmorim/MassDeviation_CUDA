@@ -9,7 +9,7 @@
 
 #define nL 100
 #define nH 100
-#define nt 750000
+#define nt 10000000
 #define D 2
 #define Q 9
 
@@ -63,6 +63,10 @@ __global__ void initial_condition(double *u_x, double *u_y, double *p0, double *
         nh_q[lattice_idx] = nhq0;
         nhq = nhq0;
     }
+    // nh_p[lattice_idx] = 0.;
+    // nh_q[lattice_idx] = nhq0;
+    // nhp = 0.;
+    // nhq = nhq0;
 
     // Populations
     for (int i = 0; i < Q; i++)
@@ -103,7 +107,7 @@ __global__ void calculate_gradients(double *u_x, double *u_y, double *nh_p, doub
     int k = lattice_idx % nL;
     int j = int(lattice_idx / nL);
 
-    double nh_T, nh, rho, phi, xq, xp, nhp, nhq, ux, uy;
+    double nh, rho, phi, xq, xp, nhp, nhq, ux, uy;
 
     for (int i = 0; i < Q; i++)
     {
@@ -132,6 +136,10 @@ __global__ void calculate_gradients(double *u_x, double *u_y, double *nh_p, doub
         nh = nhp + nhq;
         xp = nhp / nh;
         xq = nhq / nh;
+        // if (isnan(xp) || isnan(xq))
+        // {
+        //     printf("NaN in xp %e or xq %e on lattice idx %d \n", xp, xq, lattice_idx);
+        // }
 
         rho = rp * nhp + rq * nhq;
 
@@ -162,7 +170,7 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
     double ux, uy, t0, t1, t2, t3x, t3y, t4, pi_xx, pi_xy, pi_yy;
     double peq, qeq, feq, pout, qout, fout, fneq;
     double nh, rho, xq, xp, omegap, omegaq, nhp, nhq;
-    double Ss, Sr, Sc, fi;
+    double Ss, Sr, Sc;
     double taumix = tau;
 
     nhp = nh_p[lattice_idx];
@@ -201,6 +209,8 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
     // Second-order non-equilibrium moment evaluation
     for (int i = 0; i < Q; i++)
     {
+        int pop_idx = i + lattice_idx * Q;
+
         t1 = ux * ei[i][0] + uy * ei[i][1];
         t2 = ei[i][0] * ei[i][0] + ei[i][1] * ei[i][1] - 2. * cs * cs;
         t3x = ei[i][0] * (ei[i][1] * ei[i][1] - cs * cs);
@@ -215,7 +225,6 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
         qeq = qeq + nhq * W[i] * (pow(as, 6) / 2.) * (uy * (ux * ux + theta_q * cs * cs) * t3y + ux * (uy * uy + theta_q * cs * cs) * t3x);
         qeq = qeq + nhq * W[i] * (pow(as, 8) / 4.) * (ux * ux * uy * uy + pow(cs, 4) * (1. - 1. / rq) + theta_q * cs * cs * (ux * ux + uy * uy)) * t4;
 
-        int pop_idx = i + lattice_idx * Q;
         pi_xx = pi_xx + (rp * (p[pop_idx] - peq) + rq * (q[pop_idx] - qeq)) * ei[i][0] * ei[i][0];
         pi_xy = pi_xy + (rp * (p[pop_idx] - peq) + rq * (q[pop_idx] - qeq)) * ei[i][0] * ei[i][1];
         pi_yy = pi_yy + (rp * (p[pop_idx] - peq) + rq * (q[pop_idx] - qeq)) * ei[i][1] * ei[i][1];
@@ -225,6 +234,8 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
     pi_xx = pi_xx;
     pi_xy = pi_xy;
     pi_yy = pi_yy;
+
+    double eq_vel = 0., pre_vel = 0., pos_vel = 0.;
 
     for (int i = 0; i < Q; i++)
     {
@@ -266,8 +277,13 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
         Ss = W[i] * kappa * Ss * nh * grad_phi_mod / (2. * (taumix)*pow(cs, 4));
 
         // Collision
+        // fout = feq / tau + (rp * p[pop_idx] + rq * q[pop_idx]) * (1. - (1. / taumix));
         fout = feq + fneq * (1. - (1. / taumix));
         fout = fout + Ss + Sc;
+
+        eq_vel = eq_vel + feq * ei[i][0];
+        pre_vel = pre_vel + (rp * p[pop_idx] + rq * q[pop_idx]) * ei[i][0];
+        pos_vel = pos_vel + fout * ei[i][0];
 
         // Segregation
         pout = omegap * fout + Sr;
@@ -276,6 +292,8 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
         p[pop_idx] = pout / rp;
         q[pop_idx] = qout / rq;
     }
+
+    // printf("Velocities eq_vel %e, pre_vel %e, pos_vel %e \n", eq_vel, pre_vel, pos_vel);
 
     int eix_h, eiy_h;
     int k = lattice_idx % nL;
@@ -309,7 +327,20 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
             q_out[pop_out_idx] = q[pop_idx];
         }
     }
-    __syncthreads();
+    // __syncthreads();
+    // for (int i = 0; i < Q; i++)
+    // {
+    //     int pop_idx = i + lattice_idx * Q;
+    //     p[pop_idx] = p_out[pop_idx];
+    //     q[pop_idx] = q_out[pop_idx];
+    // }
+}
+
+__global__ void copy_streamed_pops(double *p, double *q, double *p_out, double *q_out)
+{
+    int lattice_idx = threadIdx.x + blockDim.x * blockIdx.x;
+    if (lattice_idx > nL * nH - 1)
+        return;
     for (int i = 0; i < Q; i++)
     {
         int pop_idx = i + lattice_idx * Q;
@@ -318,7 +349,7 @@ __global__ void collision_and_streaming(double *nh_p, double *nh_q, double *u_x,
     }
 }
 
-__global__ void update_macroscopics(double *p, double *q, double *nh_p, double *nh_q, double *u_x, double *u_y, double *nh_T, double *massa_h)
+__global__ void update_macroscopics(double *p, double *q, double *nh_p, double *nh_q, double *u_x, double *u_y, double *nh_T, double *massa_h, int *kernel_call_count)
 {
     int lattice_idx = threadIdx.x + blockDim.x * blockIdx.x;
     if (lattice_idx > nL * nH - 1)
@@ -340,6 +371,7 @@ __global__ void update_macroscopics(double *p, double *q, double *nh_p, double *
         ux = ux + (rp * p[pop_idx] + rq * q[pop_idx]) * ei[i][0];
         uy = uy + (rp * p[pop_idx] + rq * q[pop_idx]) * ei[i][1];
     }
+    // printf("Calculating macros for lattice idx %d \n", lattice_idx);
 
     nh_p[lattice_idx] = nhp;
     nh_q[lattice_idx] = nhq;
@@ -348,6 +380,12 @@ __global__ void update_macroscopics(double *p, double *q, double *nh_p, double *
     u_x[lattice_idx] = ux / (rp * nhp + rq * nhq);
     u_y[lattice_idx] = uy / (rp * nhp + rq * nhq);
 
+    if (isnan(nhp) || isnan(nhq))
+    {
+        printf("NaN in update macros lattice idx %d, nhp %e, nhq %e \n", lattice_idx, nhp, nhq);
+    }
+
+    atomicAdd(kernel_call_count, 1);
     atomicAdd(nh_T, nh);     // Total mass control
     atomicAdd(massa_h, nhp); // Total mass control
 }
@@ -369,6 +407,7 @@ __global__ void calculate_error(double *p0, double *nh_p, double *nh_q, double *
 int main()
 {
     clock_t start = clock();
+    cudaDeviceSetLimit(cudaLimitPrintfFifoSize, 1024 * 1024 * 50); // Set to 50MB
 
     double h_kappa, h_rp, h_rq, h_tau; // Interface tension parameter
     cudaMemcpyFromSymbol(&h_tau, tau, sizeof(double));
@@ -402,6 +441,8 @@ int main()
     double *d_u_x, *d_u_y, *d_p0, *d_nh_q, *d_nh_p, *d_grad_phi_x, *d_grad_phi_y, *d_grad_p_x, *d_grad_p_y, *d_p_out, *d_q_out; // Device vectors
     double *d_p, *d_q;                                                                                                          // Device vectors
     double *d_massa_h, *d_nh_T, *d_erro;                                                                                        // Device vectors
+    int *d_kernel_call_count;
+    int h_kernel_call_count;
 
     cudaMalloc((void **)&d_u_x, macro_arr_size);
     cudaMalloc((void **)&d_u_y, macro_arr_size);
@@ -416,10 +457,12 @@ int main()
     cudaMalloc(&d_massa_h, sizeof(double));
     cudaMalloc(&d_nh_T, sizeof(double));
     cudaMalloc(&d_erro, sizeof(double));
+    cudaMalloc(&d_kernel_call_count, sizeof(int));
 
     cudaMemset(d_massa_h, 0, sizeof(double));
     cudaMemset(d_nh_T, 0, sizeof(double));
     cudaMemset(d_erro, 0, sizeof(double));
+    cudaMemset(d_kernel_call_count, 0, sizeof(int));
 
     cudaMalloc((void **)&d_p, pop_arr_size);
     cudaMalloc((void **)&d_p_out, pop_arr_size);
@@ -440,11 +483,15 @@ int main()
     { // Main loop (time)
         nh_T = 0.;
         collision_and_streaming<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_nh_p, d_nh_q, d_u_x, d_u_y, d_p, d_q, d_p_out, d_q_out, d_grad_phi_x, d_grad_phi_y, d_grad_p_x, d_grad_p_y);
-
+        cudaDeviceSynchronize();
+        copy_streamed_pops<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_p, d_q, d_p_out, d_q_out);
+        cudaDeviceSynchronize();
         // Density and velocity update
         massa_h = 0.;
         nh_T = 0.;
-        update_macroscopics<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_p, d_q, d_nh_p, d_nh_q, d_u_x, d_u_y, d_nh_T, d_massa_h);
+        cudaMemset(d_massa_h, 0, sizeof(double));
+        cudaMemset(d_nh_T, 0, sizeof(double));
+        update_macroscopics<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_p, d_q, d_nh_p, d_nh_q, d_u_x, d_u_y, d_nh_T, d_massa_h, d_kernel_call_count);
         cudaMemcpy(&massa_h, d_massa_h, sizeof(double), cudaMemcpyDeviceToHost);
         cudaMemcpy(&nh_T, d_nh_T, sizeof(double), cudaMemcpyDeviceToHost);
 
@@ -460,11 +507,13 @@ int main()
         {
             // Stop condition
             erro = 0.;
+            cudaMemset(d_erro, 0, sizeof(double));
             calculate_error<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_p0, d_nh_p, d_nh_q, d_erro);
             cudaMemcpy(&erro, d_erro, sizeof(double), cudaMemcpyDeviceToHost);
             erro = sqrt(erro);
             printf(" t =  %d;   erro = %e,  porcent_dev_T = %e  \n", t, (float)erro, (float)(massa_h - massa_h_cont) * 100. / massa_h_cont);
         }
+        cudaMemcpy(&h_kernel_call_count, d_kernel_call_count, sizeof(int), cudaMemcpyDeviceToHost);
 
         t = t + 1;
     } // Main loop end
