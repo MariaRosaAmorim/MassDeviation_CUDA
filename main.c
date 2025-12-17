@@ -7,19 +7,19 @@
 
 #define pi 3.1415926535897932384626433832795028841971693993751058209
 
-#define nL 100
-#define nH 100
+#define nL 160
+#define nH 160
 #define nt 2000000
 #define D 2
 #define Q 9
 
-#define R 25
+#define R 40
 
 // D2Q9 - Correction
 
 int main()
 {
-    clock_t start = clock();
+    
 
     // Vector set
     int ei[Q][D] = {{0, 0}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
@@ -31,7 +31,7 @@ int main()
     long double cs = 1. / as;
     int h = 1;
 
-    double nhp0 = 1., nhq0 = 1., rp = 10., rq = 1.;
+    double nhp0 = 1., nhq0 = 1., rp = 1., rq = 1.;
 
     double tau = 0.6; // Relaxation time
 
@@ -43,8 +43,16 @@ int main()
 
     printf("tau = %e, kappa = %e, rp = %e rq = %e\n", tau, kappa, rp, rq);
 
-    double erro = 1., erroI = 1., tolerancia = nL * nH * 1.e-12, massa_h, massa_h_cont; // Control variables
+    double erro = 1., erroI = 1., tolerancia = nL * nH * 1.e-9, massa_h, massa_h_cont; // Control variables
     int t;                                                                              // time step count
+
+        
+    FILE *ferro;
+    char name_err[100];
+    snprintf(name_err, 100, "erro_nH%d_nL%d_R%d_rp%e_beta%e._kappa%e.txt",nH,nL,R,rp,beta,kappa);
+    ferro = fopen(name_err, "w");
+
+
 
     // Velocity matrix declaration and stop condition matrix
     static double u[D][nL][nH], p0[nL][nH];
@@ -64,6 +72,14 @@ int main()
     static double peq, qeq, feq, pout, qout, fout, fneq;
     static double p_out[Q][nL][nH], q_out[Q][nL][nH];
     long double Ss, Sr, Sc, fi;
+
+    double now(void) {
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        return t.tv_sec + t.tv_nsec * 1e-9;
+    }
+    double temp0 = now();
+
 
     // Initial codition
     for (int j = 0; j < nH; j++)
@@ -452,17 +468,23 @@ int main()
                 }
             }
             erro = sqrt(erro);
+            fprintf(ferro, "%e\n", erro);
             printf(" t =  %d;   erro = %e,  porcent_dev_T = %e  \n", t, (float)erro, (float)(massa_h - massa_h_cont) * 100. / massa_h_cont);
         }
 
         t = t + 1;
     } // Main loop end
 
-    FILE *filexult, *fileyult, *filerhop, *filerhoq;
+    FILE *filexult, *fileyult, *filerhop, *filerhoq, *timeCPU;
+
+
+
     filexult = fopen("ux.txt", "w");
     fileyult = fopen("uy.txt", "w");
     filerhop = fopen("rho_p.txt", "w");
     filerhoq = fopen("rho_q.txt", "w");
+    timeCPU = fopen("timeCPU.txt", "a");
+
 
     for (int j = 0; j < nH; j++)
     {
@@ -480,9 +502,12 @@ int main()
     fclose(filerhop);
     fclose(filerhoq);
 
-    clock_t end = clock();
-    double time_spent = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("Execution time: %f seconds\n", time_spent);
+    double temp1 = now();
+    double time_spent = (double)(temp1 - temp0);
+    fprintf(timeCPU,"Execution time CPU C: %f seconds for gamma = %e and N = %d\n", time_spent, rp/rq,nH*nL);
+    fclose(timeCPU);
+    fclose(ferro);
+
 
     return 0;
 }

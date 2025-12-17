@@ -1,0 +1,4 @@
+Execution time CPU C: 19.042291 seconds for gamma = 1.000000e+00 and N = 10000
+Execution time CPU C: 27.487720 seconds for gamma = 1.000000e+00 and N = 14400
+Execution time CPU C: 40.328280 seconds for gamma = 1.000000e+00 and N = 19600
+Execution time CPU C: 52.368618 seconds for gamma = 1.000000e+00 and N = 25600

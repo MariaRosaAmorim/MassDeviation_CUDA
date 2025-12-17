@@ -4,6 +4,7 @@
 #include <math.h>
 #include <complex.h>
 #include <time.h>
+#include <cuda_runtime.h>
 
 #define pi 3.1415926535897932384626433832795028841971693993751058209
 
@@ -22,15 +23,39 @@ __constant__ double as;
 __constant__ double cs;
 __constant__ int h = 1;
 
-__constant__ double nhp0 = 1., nhq0 = 1., rp = 10., rq = 1.;
-
+__constant__ double nhp0 = 1., nhq0 = 1., rp = 1., rq = 1.;
 __constant__ double tau = 0.6;
-
 __constant__ double beta = 0.7;       // Interface thickness parameter
+__constant__ double kappa = 0.; // Interface tension parameter
+
 __constant__ double theta_p, theta_q; // Energy deviation
 __constant__ double tau_p, tau_q;
 
-__constant__ double kappa = 0.; // Interface tension parameter
+
+
+
+__device__ __forceinline__
+double atomicAdd_double(double* address, double val)
+{
+    unsigned long long int* address_as_ull =
+        (unsigned long long int*)address;
+
+    unsigned long long int old = *address_as_ull, assumed;
+
+    do {
+        assumed = old;
+        old = atomicCAS(
+            address_as_ull,
+            assumed,
+            __double_as_longlong(
+                val + __longlong_as_double(assumed)
+            )
+        );
+    } while (assumed != old);
+
+    return __longlong_as_double(old);
+}
+
 
 __global__ void initial_condition(double *u_x, double *u_y, double *p0, double *p, double *q, double *nh_p, double *nh_q, double *massa_h, double *nh_T)
 {
@@ -85,8 +110,8 @@ __global__ void initial_condition(double *u_x, double *u_y, double *p0, double *
         q[pop_idx] = qeq;
     }
 
-    atomicAdd(massa_h, nhp);
-    atomicAdd(nh_T, nhp + nhq);
+    atomicAdd_double(massa_h, nhp);
+    atomicAdd_double(nh_T, nhp + nhq);
     p0[lattice_idx] = nhp + nhq;
 }
 
@@ -386,8 +411,8 @@ __global__ void update_macroscopics(double *p, double *q, double *nh_p, double *
     }
 
     atomicAdd(kernel_call_count, 1);
-    atomicAdd(nh_T, nh);     // Total mass control
-    atomicAdd(massa_h, nhp); // Total mass control
+    atomicAdd_double(nh_T, nh);     // Total mass control
+    atomicAdd_double(massa_h, nhp); // Total mass control
 }
 
 __global__ void calculate_error(double *p0, double *nh_p, double *nh_q, double *erro)
@@ -398,22 +423,33 @@ __global__ void calculate_error(double *p0, double *nh_p, double *nh_q, double *
 
     double nh = 0.;
     nh = (nh_p[lattice_idx] + nh_q[lattice_idx]);
-    atomicAdd(erro, pow(p0[lattice_idx] - nh, 2));
+    atomicAdd_double(erro, pow(p0[lattice_idx] - nh, 2));
     p0[lattice_idx] = nh;
 }
 
 // D2Q9 - Correction
 
+double now(void)
+    {
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        return t.tv_sec + t.tv_nsec * 1e-9;
+    }
+    
+
+
 int main()
 {
-    clock_t start = clock();
+
+
     cudaDeviceSetLimit(cudaLimitPrintfFifoSize, 1024 * 1024 * 50); // Set to 50MB
 
-    double h_kappa, h_rp, h_rq, h_tau; // Interface tension parameter
+    double h_kappa, h_rp, h_rq, h_tau, h_beta; // Interface tension parameter
     cudaMemcpyFromSymbol(&h_tau, tau, sizeof(double));
     cudaMemcpyFromSymbol(&h_rp, rp, sizeof(double));
     cudaMemcpyFromSymbol(&h_rq, rq, sizeof(double));
     cudaMemcpyFromSymbol(&h_kappa, kappa, sizeof(double));
+    cudaMemcpyFromSymbol(&h_beta, beta, sizeof(double));
 
     double h_as = sqrt(3);
     double h_cs = 1. / h_as;
@@ -426,6 +462,12 @@ int main()
     cudaMemcpyToSymbol(theta_q, &h_theta_q, sizeof(double));
     cudaMemcpyToSymbol(tau_p, &h_tau_p, sizeof(double));
     cudaMemcpyToSymbol(tau_q, &h_tau_q, sizeof(double));
+
+    FILE *ferro;
+    char name_err[100];
+    snprintf(name_err, 100, "erro_nH%d_nL%d_R%d_rp%e_beta%e._kappa%e.txt",nH,nL,R,h_rp,h_beta,h_kappa);
+    ferro = fopen(name_err, "w");
+    double temp0 = now();
 
     int THREADS_PER_BLOCK = 64;
     int NUMBER_OF_BLOCKS = ceil(float(nL * nH) / float(THREADS_PER_BLOCK));
@@ -511,6 +553,7 @@ int main()
             calculate_error<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>(d_p0, d_nh_p, d_nh_q, d_erro);
             cudaMemcpy(&erro, d_erro, sizeof(double), cudaMemcpyDeviceToHost);
             erro = sqrt(erro);
+            // fprintf(ferro, "%e\n", erro);
             printf(" t =  %d;   erro = %e,  porcent_dev_T = %e  \n", t, (float)erro, (float)(massa_h - massa_h_cont) * 100. / massa_h_cont);
         }
         cudaMemcpy(&h_kernel_call_count, d_kernel_call_count, sizeof(int), cudaMemcpyDeviceToHost);
@@ -518,11 +561,12 @@ int main()
         t = t + 1;
     } // Main loop end
 
-    FILE *filexult, *fileyult, *filerhop, *filerhoq;
+    FILE *filexult, *fileyult, *filerhop, *filerhoq, *timeGPU;
     filexult = fopen("ux.txt", "w");
     fileyult = fopen("uy.txt", "w");
     filerhop = fopen("rho_p.txt", "w");
     filerhoq = fopen("rho_q.txt", "w");
+    timeGPU = fopen("timeGPU.txt", "a");
 
     cudaMemcpy(&u_x, d_u_x, macro_arr_size, cudaMemcpyDeviceToHost);
     cudaMemcpy(&u_y, d_u_y, macro_arr_size, cudaMemcpyDeviceToHost);
@@ -546,9 +590,11 @@ int main()
     fclose(filerhop);
     fclose(filerhoq);
 
-    clock_t end = clock();
-    double time_spent = (double)(end - start) / CLOCKS_PER_SEC;
-    printf("Execution time: %f seconds\n", time_spent);
+    double temp1 = now();
+    double time_spent = (double)(temp1 - temp0);
+    fprintf(timeGPU,"Execution time GPU CUDA: %f seconds for gamma = %e and N = %d\n", time_spent, h_rp/h_rq,nH*nL);
+    fclose(timeGPU);
+    fclose(ferro);
 
     return 0;
 }
