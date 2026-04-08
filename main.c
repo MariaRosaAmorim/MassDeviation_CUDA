@@ -19,7 +19,6 @@
 
 int main()
 {
-    
 
     // Vector set
     int ei[Q][D] = {{0, 0}, {1, 0}, {0, 1}, {-1, 0}, {0, -1}, {1, 1}, {-1, 1}, {-1, -1}, {1, -1}};
@@ -44,15 +43,12 @@ int main()
     printf("tau = %e, kappa = %e, rp = %e rq = %e\n", tau, kappa, rp, rq);
 
     double erro = 1., erroI = 1., tolerancia = nL * nH * 1.e-9, massa_h, massa_h_cont; // Control variables
-    int t;                                                                              // time step count
+    int t;                                                                             // time step count
 
-        
     FILE *ferro;
     char name_err[100];
-    snprintf(name_err, 100, "erro_nH%d_nL%d_R%d_rp%e_beta%e._kappa%e.txt",nH,nL,R,rp,beta,kappa);
+    snprintf(name_err, 100, "erro_nH%d_nL%d_R%d_rp%e_beta%e._kappa%e.txt", nH, nL, R, rp, beta, kappa);
     ferro = fopen(name_err, "w");
-
-
 
     // Velocity matrix declaration and stop condition matrix
     static double u[D][nL][nH], p0[nL][nH];
@@ -73,13 +69,13 @@ int main()
     static double p_out[Q][nL][nH], q_out[Q][nL][nH];
     long double Ss, Sr, Sc, fi;
 
-    double now(void) {
+    double now(void)
+    {
         struct timespec t;
         clock_gettime(CLOCK_MONOTONIC, &t);
         return t.tv_sec + t.tv_nsec * 1e-9;
     }
     double temp0 = now();
-
 
     // Initial codition
     for (int j = 0; j < nH; j++)
@@ -477,14 +473,11 @@ int main()
 
     FILE *filexult, *fileyult, *filerhop, *filerhoq, *timeCPU;
 
-
-
     filexult = fopen("ux.txt", "w");
     fileyult = fopen("uy.txt", "w");
     filerhop = fopen("rho_p.txt", "w");
     filerhoq = fopen("rho_q.txt", "w");
     timeCPU = fopen("timeCPU.txt", "a");
-
 
     for (int j = 0; j < nH; j++)
     {
@@ -504,10 +497,9 @@ int main()
 
     double temp1 = now();
     double time_spent = (double)(temp1 - temp0);
-    fprintf(timeCPU,"Execution time CPU C: %f seconds for gamma = %e and N = %d\n", time_spent, rp/rq,nH*nL);
+    fprintf(timeCPU, "Execution time CPU C: %f seconds for gamma = %e and N = %d\n", time_spent, rp / rq, nH * nL);
     fclose(timeCPU);
     fclose(ferro);
-
 
     return 0;
 }

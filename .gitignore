@@ -4,6 +4,11 @@ new
 uv.lock
 *.vts
 *.vtk
+*.exe
+*.lib
+*.exp
+
+*_results/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
