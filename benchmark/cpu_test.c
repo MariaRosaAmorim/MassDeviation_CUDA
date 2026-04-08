@@ -7,15 +7,32 @@
 
 #define pi 3.1415926535897932384626433832795028841971693993751058209
 
+#ifndef nL
 #define nL 100
+#endif
+
+#ifndef nH
 #define nH 100
+#endif
+
+#ifndef nt
 #define nt 1000000
+#endif
+
 #define D 2
 #define Q 9
 
+#ifndef R
 #define R 25
+#endif
 
 #define ERROR_FREQUENCY 1000
+
+// Simulation tag injected by the benchmark script via -DOUTPUT_TAG="..."
+// Falls back to "default" when the file is compiled standalone.
+#ifndef OUTPUT_TAG
+#define OUTPUT_TAG "default"
+#endif
 
 // D2Q9 - Correction
 
@@ -466,6 +483,8 @@ int main()
     filerhoq = fopen("rho_q.txt", "w");
 
     // Simulation Report
+    fprintf(file_simulation_report, "Tag: %s\n", OUTPUT_TAG);
+    fprintf(file_simulation_report, "nL=%d nH=%d nt=%d R=%d\n", nL, nH, nt, R);
     fprintf(file_simulation_report, "Execution time: %f seconds\n", time_spent);
     fprintf(file_simulation_report, "Erro; Massa_h\n");
     for (int i = 0; i < array_size; i++)
