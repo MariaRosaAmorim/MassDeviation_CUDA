@@ -49,7 +49,12 @@ __constant__ double as;
 __constant__ double cs;
 __constant__ int h = 1;
 
+
+#ifdef RP
+__constant__ double nhp0 = 1., nhq0 = 1., rp = RP, rq = 1.;
+#else
 __constant__ double nhp0 = 1., nhq0 = 1., rp = 1., rq = 1.;
+#endif
 
 __constant__ double tau = 0.6;
 

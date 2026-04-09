@@ -31,9 +31,12 @@ OUTPUT_CSV = SCRIPT_DIR / "benchmark_results.csv"
 # Default parameter grid – edit these lists to define the sweep
 # ---------------------------------------------------------------------------
 
-NL_VALUES = [10, 100, 200]
-NH_VALUES = [10, 100, 200]
-NT_VALUES = [1_000, 10_000]
+DOMAIN_SIZES = [100, 150, 200]
+# NL_VALUES = [100, 150, 200]
+# NH_VALUES = [100, 150, 200]
+# NT_VALUES = [1_000_000]
+NT_VALUES = [10000]
+RP_VALUES = [1.0, 1.1]
 
 # Radius: auto-derived as nL // 4 (keeps the droplet proportional to domain).
 # Set R_OVERRIDE = [25, 50, ...] to fix explicit values instead.
@@ -45,14 +48,13 @@ R_OVERRIDE = None
 NVCC = "nvcc"
 GXX = "g++"
 OPT_FLAGS = ["-O3"]
-
 # NVCC_EXTRA = ["-Xcompiler", "-fopenmp", "-lm"]
 # GXX_EXTRA = ["-fopenmp", "-lm"]
 NVCC_EXTRA = ["-Xcompiler", "-lm"]
-GXX_EXTRA = ["-lm"]
+GXX_EXTRA = ["-lm", "-flto", "-march=native"]
 
 # Timeout per execution run in seconds (None = no limit)
-RUN_TIMEOUT = 3600
+RUN_TIMEOUT = None
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +73,7 @@ def compile_variant(
     nH: int,
     nt: int,
     R: int,
+    rp: float,
     tag: str,
     use_nvcc: bool,
 ) -> tuple[bool, str]:
@@ -80,6 +83,7 @@ def compile_variant(
         f"-DnH={nH}",
         f"-Dnt={nt}",
         f"-DR={R}",
+        f"-DRP={rp}",
         f'-DOUTPUT_TAG="{tag}"',  # printed in the simulation report
     ]
     if use_nvcc:
@@ -134,7 +138,8 @@ def run_benchmark(targets: list[str]) -> pd.DataFrame:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
 
     records = []
-    combos = list(itertools.product(NL_VALUES, NH_VALUES, NT_VALUES))
+    # combos = list(itertools.product(NL_VALUES, NH_VALUES, NT_VALUES, RP_VALUES))
+    combos = list(itertools.product(DOMAIN_SIZES, NT_VALUES, RP_VALUES))
     total = len(combos) * len(targets)
     done = 0
 
@@ -145,7 +150,9 @@ def run_benchmark(targets: list[str]) -> pd.DataFrame:
     print(f"  Output root : {SCRIPT_DIR}")
     print(f"{'='*62}\n")
 
-    for idx, (nL, nH, nt) in enumerate(combos):
+    for idx, (domain_size, nt, rp) in enumerate(combos):
+        nL = domain_size
+        nH = domain_size
         R = radius_for(nL, idx)
 
         for target in targets:
@@ -159,7 +166,7 @@ def run_benchmark(targets: list[str]) -> pd.DataFrame:
             print(f"[{done}/{total}] {tag}")
             print(f"         Compiling ...", end="", flush=True)
 
-            ok, err = compile_variant(source, binary, nL, nH, nt, R, tag, use_nvcc)
+            ok, err = compile_variant(source, binary, nL, nH, nt, R, rp, tag, use_nvcc)
             if not ok:
                 print(f"  FAILED\n         {err[:200]}")
                 records.append(
@@ -169,6 +176,7 @@ def run_benchmark(targets: list[str]) -> pd.DataFrame:
                         "nH": nH,
                         "nt": nt,
                         "R": R,
+                        "rp": rp,
                         "grid_size": nL * nH,
                         "compile_ok": False,
                         "execution_time": float("nan"),
@@ -195,6 +203,7 @@ def run_benchmark(targets: list[str]) -> pd.DataFrame:
                     "nH": nH,
                     "nt": nt,
                     "R": R,
+                    "rp": rp,
                     "grid_size": nL * nH,
                     "compile_ok": True,
                     "execution_time": elapsed if elapsed is not None else float("nan"),

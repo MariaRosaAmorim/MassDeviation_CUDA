@@ -52,6 +52,11 @@ int main()
 
     double nhp0 = 1., nhq0 = 1., rp = 10., rq = 1.;
 
+    #ifdef RP
+    rp = RP;
+    #endif
+
+
     double tau = 0.6; // Relaxation time
 
     double beta = 0.7;                                         // Interface thickness parameter
